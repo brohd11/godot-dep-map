@@ -13,7 +13,7 @@
 
 const URegex = preload("uid://cpjnb72qn8bmh") # u_regex.gd
 const UString = preload("uid://cwootkivqiwq1") # u_string.gd
-const Resolve = preload("res://addons/addon_lib/brohd/alib_runtime/utils/resource/dependencies/resolve.gd")
+const Resolve = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/resolve.gd")
 
 const AUTOGEN_MARKER = "This file is auto-generated"
 const AUTOGEN_SCAN_LINES = 3

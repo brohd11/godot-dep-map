@@ -6,8 +6,8 @@
 ## whose missing-attribute check is `if line.find(x):` - that is truthy on -1 and returns a
 ## garbage slice when the attribute is absent, which uid= frequently is.
 
-const DepEdge = preload("res://addons/addon_lib/brohd/alib_runtime/utils/resource/dependencies/dep_edge.gd")
-const Resolve = preload("res://addons/addon_lib/brohd/alib_runtime/utils/resource/dependencies/resolve.gd")
+const DepEdge = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/dep_edge.gd")
+const Resolve = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/resolve.gd")
 
 static func scan(file_path:String, ctx) -> Array:
 	var file = FileAccess.open(file_path, FileAccess.READ)

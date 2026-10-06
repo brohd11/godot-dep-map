@@ -4,9 +4,9 @@
 
 const UString = preload("uid://cwootkivqiwq1") # u_string.gd
 const URegex = preload("uid://cpjnb72qn8bmh") # u_regex.gd
-const DepEdge = preload("res://addons/addon_lib/brohd/alib_runtime/utils/resource/dependencies/dep_edge.gd")
-const Resolve = preload("res://addons/addon_lib/brohd/alib_runtime/utils/resource/dependencies/resolve.gd")
-const ResolveAccess = preload("res://addons/addon_lib/brohd/alib_runtime/utils/resource/dependencies/resolve_access.gd")
+const DepEdge = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/dep_edge.gd")
+const Resolve = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/resolve.gd")
+const ResolveAccess = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/resolve_access.gd")
 
 static var _preload_regex:RegEx
 static var _load_regex:RegEx

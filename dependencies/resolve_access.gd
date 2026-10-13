@@ -11,9 +11,9 @@
 ## which would cost the collector its headless, never-load property. The `const X = preload()`
 ## shape covered here is what every namespace file in this project is made of.
 
-const URegex = preload("uid://cpjnb72qn8bmh") # u_regex.gd
-const UString = preload("uid://cwootkivqiwq1") # u_string.gd
-const Resolve = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/resolve.gd")
+const URegex = preload("uid://d0rbf4as6kpns") #! resolve UtilR.Strings.URegex
+const StringMap = preload("uid://btml0a8r6vbbn") #! resolve UtilR.Strings.StringMap
+const Resolve = preload("res://addons/_lib/dep_map/dependencies/resolve.gd")
 
 const AUTOGEN_MARKER = "This file is auto-generated"
 const AUTOGEN_SCAN_LINES = 3
@@ -78,7 +78,7 @@ static func get_const_paths(file_path:String, cache:Dictionary) -> Dictionary:
 		return consts
 
 	_ensure_regex()
-	var map = UString.StringMap.new(text)
+	var map = StringMap.new(text)
 	var offset = 0
 	for line in text.split("\n"):
 		var m = _const_regex.search(line)

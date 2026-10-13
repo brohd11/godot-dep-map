@@ -1,0 +1,51 @@
+export_root: "res://addons/_lib/dep_map/_export_ignore/exports"
+plugin_folder: "DepMap{{version=res://addons/_lib/dep_map}}"
+pre_script: "res://addons/_lib/dep_map/_export_ignore/pre_post_export.gd"
+post_script: "res://addons/_lib/dep_map/_export_ignore/pre_post_export.gd"
+build_require: "@require"
+compile_require: []
+options:
+  overwrite: true
+  include_uid: true
+  include_import: true
+  ignore_src: true
+  use_tag_in_cfg: true
+  exported_deps: []
+  include_min_version: true
+  move_global_files: true
+  include_docs: true
+  include_project_license: false
+  parser_settings:
+    use_relative_paths: false
+    backport_target: 100
+    parse_cs:
+      namespace_rename: {}
+    parse_gd:
+      replace_editor_interface: false
+      optimizer:
+        struct_mode: tagged
+        inline_mode: tagged
+        aggressive: false
+        debug_tags: false
+        enabled: true
+      class_rename_ignore: []
+      backport_string_renames: {}
+    parse_tscn: {}
+    parse_tres: {}
+exports:
+  -
+    source: "res://addons/_lib/dep_map"
+    export_name: "dep-map{{version=res://addons/_lib/dep_map}}"
+    export_folder: addons/_lib/dep_map
+    exclude:
+      directories:
+        - "res://addons/_lib/dep_map/_export_ignore"
+      file_extensions: []
+      files: []
+    other_transfers: []
+    parser_overide_settings:
+      parse_cs: {}
+      parse_gd: {}
+      parse_tscn: {}
+      parse_tres: {}
+    remote_dir: "res://addons/_lib/dep_map/src/remote"

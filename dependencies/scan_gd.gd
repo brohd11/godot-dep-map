@@ -2,11 +2,11 @@
 ## One StringMap per file masks strings and comments, so a `preload(` inside either is ignored
 ## without resorting to counting quotes on the line.
 
-const UString = preload("uid://cwootkivqiwq1") # u_string.gd
-const URegex = preload("uid://cpjnb72qn8bmh") # u_regex.gd
-const DepEdge = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/dep_edge.gd")
-const Resolve = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/resolve.gd")
-const ResolveAccess = preload("res://addons/_lib/brohd/alib_runtime/utils/resource/dependencies/resolve_access.gd")
+const StringMap = preload("uid://btml0a8r6vbbn") #! resolve UtilR.Strings.StringMap
+const URegex = preload("uid://d0rbf4as6kpns") #! resolve UtilR.Strings.URegex
+const DepEdge = preload("res://addons/_lib/dep_map/dependencies/dep_edge.gd")
+const Resolve = preload("res://addons/_lib/dep_map/dependencies/resolve.gd")
+const ResolveAccess = preload("res://addons/_lib/dep_map/dependencies/resolve_access.gd")
 
 static var _preload_regex:RegEx
 static var _load_regex:RegEx
@@ -45,12 +45,12 @@ static func scan(file_path:String, ctx) -> Array:
 	if text == "":
 		return []
 
-	var map = UString.StringMap.new(text)
+	var map = StringMap.new(text)
 	var line_starts = _build_line_starts(text)
 	var declared = _declared_names(text, map, line_starts)
 	if not ctx.ignore_line_tags.is_empty():
 		text = mask_ignored_lines(text, ctx.ignore_line_tags)
-		map = UString.StringMap.new(text)
+		map = StringMap.new(text)
 
 	# Lines first: `extends Foo` is already a global-class use, so the token pass must not
 	# emit a second edge for it.
@@ -75,7 +75,7 @@ static func ignored_line_numbers(text:String, tags:Array) -> Dictionary:
 	var ignored = {}
 	if tags.is_empty() or not text.contains("#!"):
 		return ignored
-	var map = UString.StringMap.new(text)
+	var map = StringMap.new(text)
 	var offset = 0
 	var lines = text.split("\n")
 	for i in lines.size():

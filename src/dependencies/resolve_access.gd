@@ -13,7 +13,7 @@
 
 const URegex = preload("uid://d0rbf4as6kpns") #! resolve UtilR.Strings.URegex
 const StringMap = preload("uid://btml0a8r6vbbn") #! resolve UtilR.Strings.StringMap
-const Resolve = preload("res://addons/_lib/dep_map/dependencies/resolve.gd")
+const Resolve = preload("res://addons/_lib/dep_map/src/dependencies/resolve.gd")
 
 const AUTOGEN_MARKER = "This file is auto-generated"
 const AUTOGEN_SCAN_LINES = 3

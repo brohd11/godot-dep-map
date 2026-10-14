@@ -19,15 +19,15 @@
 ## open()/scan()/get_graph() mirror UFile.GetFiles, which pairs a static one-shot with an
 ## instance getter for the same reason: the two cannot share a name.
 
-const SELF = preload("res://addons/_lib/dep_map/dependencies.gd")
+const SELF = preload("res://addons/_lib/dep_map/src/dependencies.gd")
 
-const DepGraph = preload("res://addons/_lib/dep_map/dependencies/dep_graph.gd")
-const DepNode = preload("res://addons/_lib/dep_map/dependencies/dep_node.gd")
-const DepEdge = preload("res://addons/_lib/dep_map/dependencies/dep_edge.gd")
-const Resolve = preload("res://addons/_lib/dep_map/dependencies/resolve.gd")
-const ResolveAccess = preload("res://addons/_lib/dep_map/dependencies/resolve_access.gd")
-const ScanGD = preload("res://addons/_lib/dep_map/dependencies/scan_gd.gd")
-const ScanSer = preload("res://addons/_lib/dep_map/dependencies/scan_ser.gd")
+const DepGraph = preload("res://addons/_lib/dep_map/src/dependencies/dep_graph.gd")
+const DepNode = preload("res://addons/_lib/dep_map/src/dependencies/dep_node.gd")
+const DepEdge = preload("res://addons/_lib/dep_map/src/dependencies/dep_edge.gd")
+const Resolve = preload("res://addons/_lib/dep_map/src/dependencies/resolve.gd")
+const ResolveAccess = preload("res://addons/_lib/dep_map/src/dependencies/resolve_access.gd")
+const ScanGD = preload("res://addons/_lib/dep_map/src/dependencies/scan_gd.gd")
+const ScanSer = preload("res://addons/_lib/dep_map/src/dependencies/scan_ser.gd")
 
 const Kind = DepEdge.Kind
 

@@ -1,7 +1,7 @@
 export_root: "res://addons/_lib/dep_map/_export_ignore/exports"
 plugin_folder: "DepMap{{version=res://addons/_lib/dep_map}}"
-pre_script: "res://addons/_lib/dep_map/_export_ignore/pre_post_export.gd"
-post_script: "res://addons/_lib/dep_map/_export_ignore/pre_post_export.gd"
+pre_script: ""
+post_script: ""
 build_require: "@require"
 compile_require: []
 options:

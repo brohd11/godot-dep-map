@@ -4,9 +4,9 @@
 
 const StringMap = preload("uid://btml0a8r6vbbn") #! resolve UtilR.Strings.StringMap
 const URegex = preload("uid://d0rbf4as6kpns") #! resolve UtilR.Strings.URegex
-const DepEdge = preload("res://addons/_lib/dep_map/dependencies/dep_edge.gd")
-const Resolve = preload("res://addons/_lib/dep_map/dependencies/resolve.gd")
-const ResolveAccess = preload("res://addons/_lib/dep_map/dependencies/resolve_access.gd")
+const DepEdge = preload("res://addons/_lib/dep_map/src/dependencies/dep_edge.gd")
+const Resolve = preload("res://addons/_lib/dep_map/src/dependencies/resolve.gd")
+const ResolveAccess = preload("res://addons/_lib/dep_map/src/dependencies/resolve_access.gd")
 
 static var _preload_regex:RegEx
 static var _load_regex:RegEx

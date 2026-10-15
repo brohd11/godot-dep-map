@@ -1,12 +1,12 @@
-## Text scanner for .gd files. Emits unresolved refs; dependencies.gd resolves and places them.
+## Text scanner for .gd files. Emits unresolved refs; scanner.gd resolves and places them.
 ## One StringMap per file masks strings and comments, so a `preload(` inside either is ignored
 ## without resorting to counting quotes on the line.
 
 const StringMap = preload("uid://btml0a8r6vbbn") #! resolve UtilR.Strings.StringMap
 const URegex = preload("uid://d0rbf4as6kpns") #! resolve UtilR.Strings.URegex
-const DepEdge = preload("res://addons/_lib/dep_map/src/dependencies/dep_edge.gd")
-const Resolve = preload("res://addons/_lib/dep_map/src/dependencies/resolve.gd")
-const ResolveAccess = preload("res://addons/_lib/dep_map/src/dependencies/resolve_access.gd")
+const DepEdge = preload("res://addons/_lib/dep_map/src/scanner/dep_edge.gd")
+const Resolve = preload("res://addons/_lib/dep_map/src/scanner/resolve.gd")
+const ResolveAccess = preload("res://addons/_lib/dep_map/src/scanner/resolve_access.gd")
 
 static var _preload_regex:RegEx
 static var _load_regex:RegEx

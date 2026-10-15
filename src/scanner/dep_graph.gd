@@ -1,5 +1,5 @@
 ## Result of a dependency scan: every file reached, and every reference that reached it.
-## Built by dependencies.gd - callers only read it.
+## Built by scanner.gd - callers only read it.
 
 ## Paths the scan was seeded with.
 var roots:PackedStringArray = PackedStringArray()

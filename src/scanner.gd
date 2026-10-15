@@ -1,3 +1,4 @@
+#! namespace DepMap class Scanner
 ## Recursive resource-dependency collector. Text-only: nothing is loaded, nothing is
 ## imported, so it runs headless and on files the editor has never seen.
 ##
@@ -6,12 +7,12 @@
 ## preloaded from three places still knows all three, with the kind, line and original
 ## text of each.
 ##
-##     const UDep = UResource.Dependencies
+##     const Scanner = DepMap.Scanner
 ##
-##     var graph = UDep.scan("res://addons/foo/plugin.gd")
+##     var graph = Scanner.scan("res://addons/foo/plugin.gd")
 ##     print(graph.get_dependents("res://addons/foo/src/thing.gd"))
 ##
-##     var d = UDep.open("res://addons/foo/plugin.gd")
+##     var d = Scanner.open("res://addons/foo/plugin.gd")
 ##     d.ignore_dir_paths = ["res://addons/foo/export_ignore"]
 ##     d.add_tag_handler("asset", func(ctx): return {"dir": ctx.value})
 ##     var graph = d.get_graph()
@@ -19,15 +20,15 @@
 ## open()/scan()/get_graph() mirror UFile.GetFiles, which pairs a static one-shot with an
 ## instance getter for the same reason: the two cannot share a name.
 
-const SELF = preload("res://addons/_lib/dep_map/src/dependencies.gd")
+const SELF = preload("res://addons/_lib/dep_map/src/scanner.gd")
 
-const DepGraph = preload("res://addons/_lib/dep_map/src/dependencies/dep_graph.gd")
-const DepNode = preload("res://addons/_lib/dep_map/src/dependencies/dep_node.gd")
-const DepEdge = preload("res://addons/_lib/dep_map/src/dependencies/dep_edge.gd")
-const Resolve = preload("res://addons/_lib/dep_map/src/dependencies/resolve.gd")
-const ResolveAccess = preload("res://addons/_lib/dep_map/src/dependencies/resolve_access.gd")
-const ScanGD = preload("res://addons/_lib/dep_map/src/dependencies/scan_gd.gd")
-const ScanSer = preload("res://addons/_lib/dep_map/src/dependencies/scan_ser.gd")
+const DepGraph = preload("res://addons/_lib/dep_map/src/scanner/dep_graph.gd")
+const DepNode = preload("res://addons/_lib/dep_map/src/scanner/dep_node.gd")
+const DepEdge = preload("res://addons/_lib/dep_map/src/scanner/dep_edge.gd")
+const Resolve = preload("res://addons/_lib/dep_map/src/scanner/resolve.gd")
+const ResolveAccess = preload("res://addons/_lib/dep_map/src/scanner/resolve_access.gd")
+const ScanGD = preload("res://addons/_lib/dep_map/src/scanner/scan_gd.gd")
+const ScanSer = preload("res://addons/_lib/dep_map/src/scanner/scan_ser.gd")
 
 const Kind = DepEdge.Kind
 

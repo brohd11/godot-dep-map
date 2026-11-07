@@ -56,6 +56,16 @@ static func run_tests() -> Dictionary:
 	_test_access_path_shapes()
 	_test_resolution_never_loses_a_dependency()
 	_test_namespace_hub_marking()
+	_test_alias_walk()
+	_test_alias_edges()
+	_test_inherited_heads()
+	_test_pass_through()
+	_test_self_reference()
+	_test_literals()
+	_test_preload_const()
+	_test_first_occurrence_on_dropped_line()
+	_test_keep_dirs()
+	_test_tags_block_pass_through()
 
 	_reset_dir()
 
@@ -576,6 +586,306 @@ static func _test_resolution_never_loses_a_dependency() -> void:
 	_check("guarantee: nothing lost when resolving", lost, [])
 	_check("guarantee: hub survives resolution", reached_on.has(hub), true)
 	_check("guarantee: resolution adds the direct edge", reached_on.has(base), true)
+
+
+## A const that is itself an alias has to be crossed, read in the scope of the file declaring it.
+static func _test_alias_walk() -> void:
+	var leaf = _w("al_leaf.gd", "extends RefCounted\nclass Inner:\n\tconst V = 1\n")
+	var utils = _w("al_utils.gd", 'const Leaf = preload("%s")\n' % leaf)
+	var hub = _w("al_hub.gd", """const Utils = preload("%s")
+const Leaf = Utils.Leaf
+const Renamed = Utils.Leaf
+const Inner = Utils.Leaf.Inner
+const SLOT = EditorPlugin.DOCK_SLOT_NONE
+const Typed: Script = preload("%s")
+""" % [utils, leaf])
+	var classes = {"Hub": hub}
+	var result = func(expression:String): return Scanner.ResolveAccess.resolve(expression, {}, classes, {})
+
+	var alias = result.call("Hub.Leaf")
+	_check("alias: crossed to the file", alias.path, leaf)
+	_check("alias: not partial", alias.partial, false)
+	_check("alias: head stays the hub", alias.head_path, hub)
+	_check("alias: every const recorded", alias.crossed.map(func(h): return h.name), ["Leaf", "Utils", "Leaf"])
+
+	_check("alias: rename binds the real name", result.call("Hub.Renamed").bind_name, "Leaf")
+
+	var inner = result.call("Hub.Inner.V")
+	_check("alias: inner lands on its file", inner.path, leaf)
+	_check("alias: inner is partial", inner.partial, true)
+	_check("alias: suffix carries what the expression hides", inner.suffix, ["Inner"])
+	_check("alias: binds the file, not the alias", inner.bind_name, "Leaf")
+	_check("alias: expression tail stays unconsumed", inner.consumed, 2)
+
+	_check("alias: engine class stops the walk", result.call("Hub.SLOT").consumed, 1)
+	_check("alias: typed const walked", result.call("Hub.Typed").path, leaf)
+
+	# hubs preload each other as a matter of course
+	_w("cy_b.gd", "const X = preload(\"%s\").X\n" % (DIR + "cy_a.gd"))
+	var cycle_a = _w("cy_a.gd", "const X = preload(\"%s\").X\n" % (DIR + "cy_b.gd"))
+	var cycle = Scanner.ResolveAccess.resolve("A.X", {}, {"A": cycle_a}, {})
+	_check("alias: a cycle terminates", cycle.path != "", true)
+
+	var self_alias = _w("cy_self.gd", "const X = X.Y\n")
+	_check("alias: self reference terminates", Scanner.ResolveAccess.resolve("S.X", {}, {"S": self_alias}, {}).consumed, 1)
+
+
+## `preload("a.gd").Inner` names Inner, and reading it as a.gd would rewrite to the wrong class.
+static func _test_alias_edges() -> void:
+	var target = _w("sf_target.gd", "class Inner:\n\tconst V = 1\n")
+	var hub = _w("sf_hub.gd", 'const Inner = preload("%s").Inner\nconst Called = preload("%s").new()\n' % [target, target])
+	var paths = Scanner.ResolveAccess.get_const_paths(hub, {})
+	_check("suffix: not reported as a plain preload", paths.has("Inner"), false)
+	_check("suffix: call is not a const path", paths.has("Called"), false)
+	var result = Scanner.ResolveAccess.resolve("Hub.Inner.V", {}, {"Hub": hub}, {})
+	_check("suffix: walks to the inner class", result.suffix, ["Inner"])
+	_check("suffix: binds the file", result.bind_name, "SfTarget")
+
+	# a const reached through a file, not through a dotted head, still crosses what it crosses
+	var mid = _w("sf_mid.gd", 'const Target = preload("%s")\n' % target)
+	var user = _w("sf_user.gd", 'const T = preload("%s").Target\n' % mid)
+	var crossed = []
+	for edge in _scan(user).get_out_edges(user):
+		crossed.append_array(edge.meta.get("crossed", []))
+	_check("suffix: preload chain reports its crossing", crossed.any(func(h): return h.file == mid and h.name == "Target"), true)
+
+
+## Inherited consts are heads too, and one still in use has to be visible from the derived file.
+static func _test_inherited_heads() -> void:
+	var leaf = _w("ih_leaf.gd", "extends RefCounted\n")
+	var hub = _w("ih_hub.gd", 'const Leaf = preload("%s")\nstatic func f(): pass\n' % leaf)
+	var base = _w("ih_base.gd", 'extends RefCounted\nconst H = preload("%s")\n' % hub)
+
+	var dotted = _w("ih_dotted.gd", 'extends "%s"\nvar v = H.Leaf\n' % base)
+	var d = _open(dotted)
+	d.class_map = {}
+	var edge = _edge_from(d.get_graph(), dotted, leaf)
+	_check("inherit: head resolved through the base", edge != null, true)
+
+	var bare = _w("ih_bare.gd", 'extends "%s"\nfunc g(): H.f()\n' % base)
+	var kept = null
+	for e in _open(bare).get_graph().get_out_edges(bare):
+		if e.raw == "H":
+			kept = e
+	_check("inherit: bare use gets its own edge", kept.to if kept else "", hub)
+	_check("inherit: crossing names the base", kept.meta.crossed[0].file if kept else "", base)
+
+
+static func _test_pass_through() -> void:
+	var leaf = _w("pt_leaf.gd", "extends RefCounted\n")
+	var sibling = _w("pt_sibling.gd", "extends RefCounted\n")
+	var hub = _w("pt_hub.gd", '# This file is auto-generated. Do not edit.\n\nconst Leaf = preload("%s")\nconst Sibling = preload("%s")\nstatic func f(): pass\n' % [leaf, sibling])
+	var classes = {"Hub": hub}
+
+	var user = _w("pt_user.gd", "extends RefCounted\nconst Leaf = Hub.Leaf\nvar v = Hub.Leaf\n")
+	var marked = _open(user)
+	marked.class_map = classes
+	var graph = marked.get_graph()
+	_check("pass: off keeps the hub", graph.has(hub), true)
+	_check("pass: off marks the head", _edge_from(graph, user, hub).meta.get("pass_through", false), true)
+
+	var collapsed = _open(user)
+	collapsed.class_map = classes
+	collapsed.collapse_pass_through = true
+	var g2 = collapsed.get_graph()
+	_check("pass: on drops the hub", g2.has(hub), false)
+	_check("pass: on keeps the target", g2.has(leaf), true)
+	_check("pass: on drops the sibling", g2.has(sibling), false)
+
+	# one mention that is not a chain keeps the head
+	var bare = _w("pt_bare.gd", "extends RefCounted\nconst Leaf = Hub.Leaf\nvar h = Hub\n")
+	var d = _open(bare)
+	d.class_map = classes
+	d.collapse_pass_through = true
+	_check("pass: bare mention keeps the head", d.get_graph().has(hub), true)
+	var call = _w("pt_call.gd", "extends RefCounted\nconst Leaf = Hub.Leaf\nfunc g(): Hub.f()\n")
+	var d2 = _open(call)
+	d2.class_map = classes
+	d2.collapse_pass_through = true
+	_check("pass: method call keeps the head", d2.get_graph().has(hub), true)
+
+	# strings and comments are not mentions
+	var masked = _w("pt_masked.gd", 'extends RefCounted\nconst Leaf = Hub.Leaf\nvar s = "Hub" # Hub\n')
+	var d3 = _open(masked)
+	d3.class_map = classes
+	d3.collapse_pass_through = true
+	_check("pass: strings and comments do not count", d3.get_graph().has(hub), false)
+
+	# a local hub is the same thing with a preload in front of it
+	var local = _w("pt_local.gd", 'extends RefCounted\nconst H = preload("%s")\nconst Leaf = H.Leaf\n' % hub)
+	var d4 = _open(local)
+	d4.collapse_pass_through = true
+	var g4 = d4.get_graph()
+	_check("pass: local hub dropped", g4.has(hub), false)
+	_check("pass: local target kept", g4.has(leaf), true)
+
+	# freeing a declaration can free the head on its right
+	var chain = _w("pt_chain.gd", 'extends RefCounted\nconst Lib = preload("%s")\nconst H = Lib.Hub\nconst Leaf = H.Leaf\n' % _w("pt_lib.gd", 'const Hub = preload("%s")\nstatic func f(): pass\n' % hub))
+	var d5 = _open(chain)
+	d5.collapse_pass_through = true
+	var g5 = d5.get_graph()
+	_check("pass: chained declarations all go", g5.has(hub), false)
+	_check("pass: chained target kept", g5.has(leaf), true)
+
+
+## A script naming its own type through its namespace mentions the head, so the walk back has to
+## count, without a self-loop reaching the graph.
+static func _test_self_reference() -> void:
+	var path = DIR + "sr_self.gd"
+	var hub = _w("sr_hub.gd", 'const Self = preload("%s")\n' % path)
+	_w("sr_self.gd", "extends RefCounted\nstatic func make() -> Hub.Self:\n\treturn null\n")
+	var d = _open(path)
+	d.class_map = {"Hub": hub}
+	d.collapse_pass_through = true
+	var graph = d.get_graph()
+	_check("self: head is a pass-through", graph.has(hub), false)
+	_check("self: no self-loop", graph.get_out_edges(path).size(), 0)
+	_check("self: recorded apart", graph.self_edges.get(path, []).size(), 1)
+
+
+## `const MY_INT = GlobalClass.MY_INT`: the value is all the file needs, so the class is not a
+## dependency and no edge points anywhere.
+static func _test_literals() -> void:
+	var cache = _w("lt_cache.gd", """const STATE = 3
+const NAME = "a # b"
+const SN = &"s"
+const NEG = -1.5
+const FLAG = true
+const NONE = null
+const TYPED:float = 1
+const SUM = 1 + 2
+""")
+	var hub = _w("lt_hub.gd", 'const Cache = preload("%s")\nconst STATE = Cache.STATE\nstatic func f(): pass\n' % cache)
+	var resolved = func(e:String): return Scanner.ResolveAccess.resolve(e, {}, {"Hub": hub, "Cache": cache}, {})
+
+	_check("literal: int", resolved.call("Cache.STATE").literal, "3")
+	_check("literal: string keeps its hash", resolved.call("Cache.NAME").literal, '"a # b"')
+	_check("literal: string name", resolved.call("Cache.SN").literal, '&"s"')
+	_check("literal: negative float", resolved.call("Cache.NEG").literal, "-1.5")
+	_check("literal: bool", resolved.call("Cache.FLAG").literal, "true")
+	_check("literal: null", resolved.call("Cache.NONE").literal, "null")
+	_check("literal: through an alias", resolved.call("Hub.STATE").literal, "3")
+	_check("literal: typed left alone", resolved.call("Cache.TYPED").literal, "")
+	_check("literal: expression left alone", resolved.call("Cache.SUM").literal, "")
+
+	var user = _w("lt_user.gd", "extends RefCounted\nconst MY_INT = Hub.STATE\n")
+	var d = _open(user)
+	d.class_map = {"Hub": hub}
+	d.collapse_pass_through = true
+	var graph = d.get_graph()
+	_check("literal: class is no dependency", graph.has(hub), false)
+	_check("literal: nor its file", graph.has(cache), false)
+	_check("literal: recorded for the plan", graph.self_edges.get(user, []).size(), 1)
+
+	# a tagged value is more than its value
+	var tagged = _w("lt_tagged.gd", 'const NOTE = "res://x.txt" #! dep\n')
+	var tag_user = _w("lt_tag_user.gd", "extends RefCounted\nconst N = Tagged.NOTE\n")
+	var d2 = _open(tag_user)
+	d2.class_map = {"Tagged": tagged}
+	d2.collapse_pass_through = true
+	d2.add_tag_handler("dep", func(_ctx): return {})
+	var g2 = d2.get_graph()
+	_check("literal: tagged value keeps its file", g2.has(tagged), true)
+	_check("literal: tagged value is not inlined", g2.self_edges.get(tag_user, []).size(), 0)
+
+
+## A preload of a const string is as required as one of a literal path.
+static func _test_preload_const() -> void:
+	var target = _w("pc_target.gd", "extends RefCounted\n")
+	var user = _w("pc_user.gd", 'const T = preload(PATH)\nconst PATH = "%s"\n' % target)
+	var edge = _edge_from(_scan(user), user, target)
+	_check("preload const: resolved", edge != null, true)
+	_check("preload const: a real preload", edge.kind if edge else -1, Kind.PRELOAD)
+
+
+## An expression is recorded at its first occurrence, which may be a line that goes away.
+static func _test_first_occurrence_on_dropped_line() -> void:
+	var leaf = _w("fo_leaf.gd", "extends RefCounted\n")
+	var sub = _w("fo_sub.gd", 'const Leaf = preload("%s")\n' % leaf)
+	var hub = _w("fo_hub.gd", 'const Sub = preload("%s")\nstatic func f(): pass\n' % sub)
+	var user = _w("fo_user.gd", 'const H = preload("%s")\nconst S = H.Sub\nconst Leaf = S.Leaf\nvar v = H.Sub\n' % hub)
+	var d = _open(user)
+	d.collapse_pass_through = true
+	_check("first occurrence: target of a surviving use kept", d.get_graph().has(sub), true)
+
+	# the same trap for a class: first mentioned on a line that goes, used bare further down
+	var cls = _w("fo_class.gd", 'extends RefCounted\nconst Sub = Hub.Sub\nvar a:Hub\n')
+	var d2 = _open(cls)
+	d2.class_map = {"Hub": hub}
+	d2.collapse_pass_through = true
+	_check("first occurrence: bare class use keeps the head", d2.get_graph().has(hub), true)
+
+
+static func _test_keep_dirs() -> void:
+	var leaf = _w("kd_leaf.gd", "extends RefCounted\n")
+	var hub = _w("keep/kd_hub.gd", 'const Leaf = preload("%s")\n' % leaf)
+	var local = _w("kd_local.gd", 'extends RefCounted\nconst H = preload("%s")\nconst Leaf = H.Leaf\n' % hub)
+
+	var d = _open(local)
+	d.collapse_pass_through = true
+	d.collapse_keep_dirs = [DIR + "keep"]
+	var graph = d.get_graph()
+	_check("keep: hub stays", graph.has(hub), true)
+	_check("keep: local head not reducible", _edge_from(graph, local, leaf).meta.get("reducible", true), false)
+
+	var global = _w("kd_global.gd", "extends RefCounted\nconst Leaf = Hub.Leaf\n")
+	var d2 = _open(global)
+	d2.class_map = {"Hub": hub}
+	d2.collapse_pass_through = true
+	d2.collapse_keep_dirs = [DIR + "keep"]
+	var g2 = d2.get_graph()
+	_check("keep: global head stays followed", g2.has(hub), true)
+	_check("keep: global head still reducible", _edge_from(g2, global, leaf).meta.get("reducible", false), true)
+
+
+## A skipped file is never scanned, so a tag inside it would quietly stop firing.
+static func _test_tags_block_pass_through() -> void:
+	var asset = _w("tg_asset.txt", "x")
+	var leaf = _w("tg_leaf.gd", 'const A = "%s" #! dep\n' % asset)
+	var plain_leaf = _w("tg_plain.gd", "extends RefCounted\n")
+	var tagged_hub = _w("tg_hub.gd", 'const Leaf = preload("%s")\nconst A = "%s" #! dep\n' % [plain_leaf, asset])
+	var clean_top = _w("tg_top.gd", 'const Mid = preload("%s")\n' % tagged_hub)
+	var clean_hub = _w("tg_clean.gd", 'const Leaf = preload("%s")\n' % leaf)
+	var tag = func(_ctx): return {}
+
+	var make = func(root:String, classes:Dictionary):
+		var d = _open(root)
+		d.class_map = classes
+		d.collapse_pass_through = true
+		d.add_tag_handler("dep", tag)
+		return d.get_graph()
+
+	var user = _w("tg_user.gd", "extends RefCounted\nconst Leaf = Hub.Leaf\n")
+	var graph = make.call(user, {"Hub": tagged_hub})
+	_check("tag: tagged hub is not a pass-through", graph.has(tagged_hub), true)
+	_check("tag: its tag still fires", graph.has(asset), true)
+
+	var through = _w("tg_through.gd", "extends RefCounted\nconst Leaf = Top.Mid.Leaf\n")
+	var g2 = make.call(through, {"Top": clean_top})
+	_check("tag: tagged file mid-chain blocks", g2.has(tagged_hub), true)
+	_check("tag: and its tag fires", g2.has(asset), true)
+
+	var landing = _w("tg_landing.gd", "extends RefCounted\nconst Leaf = Hub.Leaf\n")
+	var g3 = make.call(landing, {"Hub": clean_hub})
+	_check("tag: landing on a tagged file still collapses", g3.has(clean_hub), false)
+	_check("tag: the landing file's tag fires", g3.has(asset), true)
+
+	var own = _w("tg_own.gd", 'extends RefCounted\nconst H = preload("%s") #! dep\nconst Leaf = H.Leaf\n' % clean_hub)
+	var g4 = make.call(own, {})
+	_check("tag: tagged const line is not a pass-through", g4.has(clean_hub), true)
+
+	# a tag elsewhere in the walking file has no bearing on its heads
+	var unrelated = _w("tg_unrelated.gd", 'extends RefCounted\nconst A = "%s" #! dep\nconst H = preload("%s")\nconst Leaf = H.Leaf\n' % [asset, clean_hub])
+	var g5 = make.call(unrelated, {})
+	_check("tag: the walking file's own tag does not block", g5.has(clean_hub), false)
+	_check("tag: and still fires", g5.has(asset), true)
+
+
+static func _edge_from(graph, from:String, to:String):
+	for edge in graph.get_out_edges(from):
+		if edge.to == to:
+			return edge
+	return null
 
 
 static func _test_namespace_hub_marking() -> void:

@@ -25,6 +25,24 @@ const META_RESOLVED_FROM = "resolved_from"
 const META_PARTIAL = "partial"
 const META_CONSUMED = "consumed"
 const META_HEAD_FROM_CLASS_MAP = "head_from_class_map"
+## The file the head alone lands on, and what an alias added past `to`: an edge reads as
+## BIND_NAME + SUFFIX + the expression's unconsumed tail.
+const META_HEAD_PATH = "head_path"
+const META_SUFFIX = "suffix"
+const META_BIND_NAME = "bind_name"
+## Every const the walk went through, as {file, name, path}. An expression left unrewritten still
+## reaches through each one at runtime, so each has to survive the export.
+const META_CROSSED = "crossed"
+## The value an expression boils down to, as source text. Such an edge has no file to point at, so
+## it comes back to the file holding the expression.
+const META_LITERAL = "literal"
+## The expression may be rewritten to its target. False for a head inside collapse_keep_dirs.
+const META_REDUCIBLE = "reducible"
+## On a head: every mention of it is a reducible chain, so the file does not need it. The edge is
+## still emitted; Scanner.collapse_pass_through is what drops it.
+const META_PASS_THROUGH = "pass_through"
+## On a pass-through edge: the class-scope const declared on that line, gone once it is reduced.
+const META_CONST_NAME = "const_name"
 
 ## Path of the file holding the reference.
 var from:String

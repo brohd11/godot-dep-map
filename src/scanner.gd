@@ -71,18 +71,26 @@ var use_project_classes:bool = true
 ## file its head resolves to. Purely additive: the head's own GLOBAL_CLASS edge is emitted
 ## either way, so turning this off can never lose a dependency, only precision.
 var resolve_access_paths:bool = true
+## Drop heads a file only ever walks through, so `const X = Hub.X` costs the file X and not the
+## whole of Hub. Needs resolve_access_paths. Off, the edges stay and carry META_PASS_THROUGH: the
+## source does need the hub to compile, this describes what it would need once reduced.
+var collapse_pass_through:bool = false
+## Directories whose heads stay and are followed under collapse_pass_through, and whose local
+## heads are not reducible at all: a hub shipping regardless is not worth rewriting around.
+var collapse_keep_dirs:Array = []
 ## {tag_name_without_prefix: Callable}. Empty means every "#!" tag is an ordinary comment.
 var tag_handlers:Dictionary = {}
 ## Tags that suppress references on their line. Empty keeps the collector policy-neutral.
 var ignore_line_tags:Array = []
 
-## {file_path: {const_name: target}} plus "autogen:<path>" flags, shared for one scan.
+## Per-file const tables and flags keyed "<kind>:<path>", shared for one scan.
 var access_cache:Dictionary = {}
 
 var _ignore_dirs:Array = []
 var _ignore_names:Dictionary = {}
 var _ignore_files:Dictionary = {}
 var _stop_dirs:Array = []
+var _collapse_keep_dirs:Array = []
 var _follow:Dictionary = {}
 
 static var _project_class_map:Dictionary = {}
@@ -165,6 +173,8 @@ func get_graph() -> DepGraph:
 		node.scanned = true
 
 		for ref:Dictionary in SCANNERS[node.extension].scan(path, self):
+			if _collapses(ref, path):
+				continue
 			var child = _add_ref(graph, node, ref)
 			if child == null or scanned.has(child.path):
 				continue
@@ -173,6 +183,20 @@ func get_graph() -> DepGraph:
 			queue.append(child.path)
 
 	return graph
+
+
+func _collapses(ref:Dictionary, from_path:String) -> bool:
+	if not collapse_pass_through or not ref.get("meta", {}).get(DepEdge.META_PASS_THROUGH, false):
+		return false
+	var target:String = ref.get("path", "")
+	return not in_collapse_keep_dir(target if target != "" else Resolve.to_path(ref.raw, from_path))
+
+
+func in_collapse_keep_dir(path:String) -> bool:
+	for dir:String in _collapse_keep_dirs:
+		if path.begins_with(dir):
+			return true
+	return false
 
 
 # Returns the child node when one was created or reached, null when the reference was
@@ -189,6 +213,11 @@ func _add_ref(graph:DepGraph, node:DepNode, ref:Dictionary):
 		graph.edges.append(edge)
 		graph.unresolved.append(edge)
 		node.out_edges.append(edge)
+		return null
+	if target == node.path and edge.meta.has(DepEdge.META_RESOLVED_FROM):
+		if not graph.self_edges.has(target):
+			graph.self_edges[target] = []
+		graph.self_edges[target].append(edge)
 		return null
 	if target == node.path or _ignored(target):
 		return null
@@ -267,6 +296,7 @@ func _build_lookups() -> void:
 
 	_ignore_dirs = _with_slashes(ignore_dir_paths)
 	_stop_dirs = _with_slashes(stop_at_dir_paths)
+	_collapse_keep_dirs = _with_slashes(collapse_keep_dirs)
 
 
 static func _with_slashes(dirs:Array) -> Array:

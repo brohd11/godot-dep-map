@@ -9,6 +9,9 @@ var nodes:Dictionary = {}
 var edges:Array = []
 ## Edges whose target could not be resolved to a path (dead uid, bad relative path).
 var unresolved:Array = []
+## {path: [DepEdge]} - dotted paths a file walks back to itself, such as a script naming its own
+## type through its namespace. Not graph edges, but the head they go through is a real mention.
+var self_edges:Dictionary = {}
 ## {ClassName: {"path": String, "first_seen": String}} for every global class referenced.
 var global_classes:Dictionary = {}
 

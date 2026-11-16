@@ -10,7 +10,6 @@ options:
   include_import: true
   ignore_src: true
   use_tag_in_cfg: true
-  exported_deps: []
   include_min_version: true
   move_global_files: true
   include_docs: true
@@ -37,15 +36,3 @@ exports:
     source: "res://addons/_lib/dep_map"
     export_name: "dep-map{{version=res://addons/_lib/dep_map}}"
     export_folder: addons/_lib/dep_map
-    exclude:
-      directories:
-        - "res://addons/_lib/dep_map/_export_ignore"
-      file_extensions: []
-      files: []
-    other_transfers: []
-    parser_overide_settings:
-      parse_cs: {}
-      parse_gd: {}
-      parse_tscn: {}
-      parse_tres: {}
-    remote_dir: "res://addons/_lib/dep_map/src/remote"

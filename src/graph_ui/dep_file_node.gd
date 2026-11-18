@@ -18,6 +18,7 @@ const TITLE_HEIGHT = 34.0
 const NODE_WIDTH = 230.0
 
 signal activated(path:String)
+signal right_clicked(path:String)
 
 var path:String = ""
 var compact:bool = false
@@ -162,12 +163,18 @@ func _tooltip_for(dep_node) -> String:
 	return "\n".join(lines)
 
 
-## GraphNode has no "activated" of its own, so double-click is detected here.
+## GraphNode has no "activated" or context click of its own, so both are detected here.
 func _gui_input(event:InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.double_click:
-			activated.emit(path)
-			accept_event()
+	if not (event is InputEventMouseButton and event.pressed):
+		return
+	# accept before emitting: a handler may rebuild the graph and free this node mid-signal
+	if event.button_index == MOUSE_BUTTON_LEFT and event.double_click:
+		accept_event()
+		activated.emit(path)
+	elif event.button_index == MOUSE_BUTTON_RIGHT:
+		accept_event() # or GraphEdit raises its own popup_request too
+		selected = true # the menu is about this node; show it
+		right_clicked.emit(path)
 
 
 ## Fallback size for the layout when a node's real minimum is not available yet.

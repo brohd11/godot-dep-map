@@ -16,6 +16,7 @@ const Scanner = preload("uid://dbn0kmkxa7caq") #! resolve DepMap.Scanner
 const Layout = preload("res://addons/_lib/dep_map/src/graph_ui/layout.gd")
 const DepFileNode = preload("res://addons/_lib/dep_map/src/graph_ui/dep_file_node.gd")
 const GraphUI = preload("res://addons/_lib/dep_map/src/graph_ui/graph_ui.gd")
+const DepEdge = preload("res://addons/_lib/dep_map/src/scanner/dep_edge.gd")
 
 const DIR = "user://alib_dep_graph_tests/"
 const NODE_SIZE = Vector2(200, 60)
@@ -42,6 +43,8 @@ static func run_tests() -> Dictionary:
 	_test_max_depth_cycle_spreads()
 	_test_cycle_prefer_edges()
 	_test_hub_cycles_spread()
+	_test_cycle_keeps_extends()
+	_test_cycle_drops_class_first()
 	_test_max_depth_opt_min_keeps_old_columns()
 	_test_neighborhood_dist_limits_depth()
 	_test_neighborhood_columns_around_focus()
@@ -265,6 +268,52 @@ static func _test_line_thickness_scales() -> void:
 		decreasing = decreasing and samples[i] < samples[i - 1]
 	_check("lines: thinner as the view zooms out", decreasing, true)
 	_check("lines: floored at overview zoom", t.call(0.02), GraphUI.LINE_MIN_THICKNESS)
+
+
+## A base class stays right of what extends it: the cycle gives up a preload instead.
+static func _test_cycle_keeps_extends() -> void:
+	var base = _w("ke_base.gd", "extends RefCounted\n")
+	var cmd = _w("ke_cmd.gd", 'extends "%s"\n' % base)
+	var helper = _w("ke_helper.gd", 'const C = preload("%s")\n' % cmd)
+	base = _w("ke_base.gd", 'const H = preload("%s")\n' % helper)
+	var root = _w("ke_root.gd", 'const B = preload("%s")\n' % base)
+
+	var graph = _scan([root])
+	var pos = Layout.compute(graph, _sizes(graph))
+	_check("extends: extender left of its base", pos[cmd].x < pos[base].x, true)
+	_check("extends: the cycle drops the preload", _left_edges(graph, pos), [[helper, cmd]])
+
+
+## A bare class-name use is the first thing a cycle gives up, even where the walk order alone
+## would have dropped the preload. Hand-built: a global class needs the project class map.
+static func _test_cycle_drops_class_first() -> void:
+	var r = "res://fake/r.gd"
+	var a = "res://fake/a.gd"
+	var b = "res://fake/b.gd"
+	var graph = _fake_graph([r], [[r, b, DepEdge.Kind.PRELOAD], [a, b, DepEdge.Kind.PRELOAD], [b, a, DepEdge.Kind.GLOBAL_CLASS]])
+	var col = {}
+	var columns = Layout._build_columns_max(graph)
+	for c in columns.size():
+		for path in columns[c]:
+			col[path] = c
+	_check("class: preload a -> b kept rightward", col[a] < col[b], true)
+	_check("class: b -> a dropped, so a starts a column like r", [col[r], col[a], col[b]], [0, 0, 1])
+
+
+## {nodes: {path: {in_edges, out_edges, depth, is_root}}} - the slice of DepGraph Layout reads.
+static func _fake_graph(roots:Array, edges:Array) -> Dictionary:
+	var nodes = {}
+	for e in edges:
+		for path in [e[0], e[1]]:
+			if not nodes.has(path):
+				nodes[path] = {"in_edges": [], "out_edges": [], "depth": 0, "is_root": path in roots}
+		var edge = DepEdge.new()
+		edge.from = e[0]
+		edge.to = e[1]
+		edge.kind = e[2]
+		nodes[e[0]].out_edges.append(edge)
+		nodes[e[1]].in_edges.append(edge)
+	return {"nodes": nodes}
 
 
 static func _left_edges(graph, pos:Dictionary) -> Array:

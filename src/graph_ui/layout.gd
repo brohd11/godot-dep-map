@@ -3,12 +3,27 @@
 ##
 ## Column is the node's LONGEST path from a root (depth_mode "max", the default): every edge
 ## then satisfies depth(to) > depth(from), so dependencies flow left to right; only an edge that
-## closes a cycle doubles back (opts.prefer_edges picks which). The scanner's DepNode.depth -
-## the SHORTEST hop count - is still available as depth_mode "min"; it reads shallower, but a
-## node reached both directly and via a long chain drags its deep incoming edges back across
-## the graph. Row order inside a
-## column comes from the barycentre of each node's parents - the cheap half of Sugiyama -
-## which is what stops the connection lines turning into a hairball.
+## closes a cycle doubles back - the weakest by KIND_RANK, after opts.prefer_edges. The
+## scanner's DepNode.depth - the SHORTEST hop count - is still available as depth_mode "min"; it
+## reads shallower, but a node reached both directly and via a long chain drags its deep incoming
+## edges back across the graph. Row order inside a column comes from the barycentre of each
+## node's parents - the cheap half of Sugiyama - which is what stops the connection lines turning
+## into a hairball.
+
+const DepEdge = preload("res://addons/_lib/dep_map/src/scanner/dep_edge.gd")
+
+## Which edge survives when a cycle has to lose one, indexed by DepEdge.Kind; lower is kept. A base
+## class belongs right of what extends it, and a bare class-name use is the loosest coupling.
+const KIND_RANK:Array[int] = [
+	2, # PRELOAD
+	4, # LOAD
+	0, # EXTENDS_PATH
+	0, # EXTENDS_CLASS
+	5, # GLOBAL_CLASS
+	2, # EXT_RESOURCE
+	1, # SCRIPT_CLASS
+	3, # TAG
+]
 
 const DEFAULTS = {
 	"h_gap": 90.0,   # between columns
@@ -77,16 +92,16 @@ static func _build_columns(dep_graph) -> Array:
 
 ## Column index per node, keyed by the LONGEST path from a source, so each file sits one column
 ## past the last file that uses it. Longest path needs a DAG and preload cycles are legal (hubs
-## their members preload back), so a DFS from the roots drops each cycle's closing edge from the
-## ranking - only that edge points left. Edges in `prefer` ("from|to") are walked first, so the
-## panel's drawn tree edges form the spine and are not the ones dropped. Built from in_edges, so
-## it works on the panel's view graph, stubs included.
+## their members preload back), so each cycle gives up its weakest edge to the ranking - only that
+## edge points left (see _back_edges). Built from in_edges, so it works on the panel's view graph,
+## stubs included.
 static func _build_columns_max(dep_graph, prefer:Dictionary = {}) -> Array:
 	if dep_graph.nodes.is_empty():
 		return []
 
 	var out_of = {} # path -> [to], preferred first, then sorted
 	var has_in = {}
+	var rank_of = {} # "from|to" -> best KIND_RANK among the pair's edges
 	for path:String in dep_graph.nodes:
 		for edge in dep_graph.nodes[path].in_edges:
 			var from:String = edge.from
@@ -97,13 +112,16 @@ static func _build_columns_max(dep_graph, prefer:Dictionary = {}) -> Array:
 			if not path in out_of[from]:
 				out_of[from].append(path)
 			has_in[path] = true
+			var key = from + "|" + path
+			var rank = KIND_RANK[edge.kind] if edge.kind >= 0 and edge.kind < KIND_RANK.size() else KIND_RANK.max()
+			rank_of[key] = mini(rank_of.get(key, rank), rank)
 	for from in out_of:
 		out_of[from].sort_custom(func(a, b):
 			var pa = prefer.has(from + "|" + a)
 			var pb = prefer.has(from + "|" + b)
 			return pa if pa != pb else a < b)
 
-	var back = _back_edges(dep_graph, out_of, has_in)
+	var back = _back_edges(dep_graph, out_of, has_in, rank_of, prefer)
 	var indegree = {}
 	for from in out_of:
 		for to in out_of[from]:
@@ -144,9 +162,50 @@ static func _build_columns_max(dep_graph, prefer:Dictionary = {}) -> Array:
 	return columns
 
 
-## {"from|to": true} for the edges that close a cycle: iterative DFS (graphs run to hundreds of
-## nodes), scan roots first, then sources, then whatever is left, each group sorted.
-static func _back_edges(dep_graph, out_of:Dictionary, has_in:Dictionary) -> Dictionary:
+## {"from|to": true}: the edges left out of the ranking so the rest form a DAG. Only an edge inside
+## a strongly connected component can close a cycle, so components are found first (iterative
+## Tarjan - graphs run to hundreds of nodes) and edges between them are kept. Inside one, edges are
+## accepted greedily in order - `prefer` (the drawn tree, acyclic, so it always survives), then
+## KIND_RANK, then DFS discovery order - and an edge is dropped when its target already reaches
+## its source over accepted edges.
+static func _back_edges(dep_graph, out_of:Dictionary, has_in:Dictionary, rank_of:Dictionary, prefer:Dictionary) -> Dictionary:
+	var scc = _strongly_connected(dep_graph, out_of, has_in)
+	var comp:Dictionary = scc.comp
+	var order:Dictionary = scc.index # DFS discovery order: roots, then sources, then the rest
+
+	var intra:Array = []
+	for from in out_of:
+		for to in out_of[from]:
+			if comp[from] == comp[to]:
+				intra.append([from, to])
+	intra.sort_custom(func(a, b):
+		var ka = a[0] + "|" + a[1]
+		var kb = b[0] + "|" + b[1]
+		var pa = prefer.has(ka)
+		var pb = prefer.has(kb)
+		if pa != pb:
+			return pa
+		if rank_of[ka] != rank_of[kb]:
+			return rank_of[ka] < rank_of[kb]
+		if order[a[0]] != order[b[0]]:
+			return order[a[0]] < order[b[0]]
+		return order[a[1]] < order[b[1]])
+
+	var accepted = {} # from -> [to], intra-component only
+	var back = {}
+	for edge in intra:
+		if _reaches(accepted, edge[1], edge[0]):
+			back[edge[0] + "|" + edge[1]] = true
+		else:
+			if not accepted.has(edge[0]):
+				accepted[edge[0]] = []
+			accepted[edge[0]].append(edge[1])
+	return back
+
+
+## {comp: {path: component id}, index: {path: discovery order}}. Walks scan roots first, then
+## sources, then the rest, each sorted, following out_of's preferred-first order.
+static func _strongly_connected(dep_graph, out_of:Dictionary, has_in:Dictionary) -> Dictionary:
 	var roots:Array = []
 	var sources:Array = []
 	var rest:Array = []
@@ -161,29 +220,66 @@ static func _back_edges(dep_graph, out_of:Dictionary, has_in:Dictionary) -> Dict
 	sources.sort()
 	rest.sort()
 
-	var back = {}
-	var state = {} # path -> 1 on the stack, 2 done
+	var index = {}
+	var low = {}
+	var on_stack = {}
+	var stack:Array = []
+	var comp = {}
+	var comp_next = 0
 	for start in roots + sources + rest:
-		if state.has(start):
+		if index.has(start):
 			continue
-		state[start] = 1
-		var stack:Array = [[start, 0]]
-		while not stack.is_empty():
-			var top:Array = stack[-1]
-			var targets:Array = out_of.get(top[0], [])
-			if top[1] >= targets.size():
-				state[top[0]] = 2
-				stack.pop_back()
+		index[start] = index.size()
+		low[start] = index[start]
+		stack.append(start)
+		on_stack[start] = true
+		var work:Array = [[start, 0]]
+		while not work.is_empty():
+			var top:Array = work[-1]
+			var v:String = top[0]
+			var targets:Array = out_of.get(v, [])
+			if top[1] < targets.size():
+				var w:String = targets[top[1]]
+				top[1] += 1
+				if not index.has(w):
+					index[w] = index.size()
+					low[w] = index[w]
+					stack.append(w)
+					on_stack[w] = true
+					work.append([w, 0])
+				elif on_stack.has(w):
+					low[v] = mini(low[v], index[w])
 				continue
-			var to:String = targets[top[1]]
-			top[1] += 1
-			match state.get(to, 0):
-				1:
-					back[top[0] + "|" + to] = true
-				0:
-					state[to] = 1
-					stack.append([to, 0])
-	return back
+			work.pop_back()
+			if not work.is_empty():
+				var parent:String = work[-1][0]
+				low[parent] = mini(low[parent], low[v])
+			if low[v] == index[v]:
+				while true:
+					var x:String = stack.pop_back()
+					on_stack.erase(x)
+					comp[x] = comp_next
+					if x == v:
+						break
+				comp_next += 1
+	return {"comp": comp, "index": index}
+
+
+static func _reaches(adj:Dictionary, start:String, target:String) -> bool:
+	if start == target:
+		return true
+	var seen = {start: true}
+	var queue:Array = [start]
+	var i = 0
+	while i < queue.size():
+		for to in adj.get(queue[i], []):
+			if to == target:
+				return true
+			if not seen.has(to):
+				seen[to] = true
+				queue.append(to)
+		i += 1
+	return false
 
 
 ## Positions for the neighbourhood view: the focus file(s) at column 0, their dependencies

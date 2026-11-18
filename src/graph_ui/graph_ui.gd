@@ -15,6 +15,10 @@ extends GraphEdit
 ##     # or centre on one file: only its neighbourhood is drawn, out to focus_depth hops
 ##     panel.set_focus("res://addons/foo/plugin.gd", 2)
 ##
+##     # actions are the host's: these hand over the file path, the host builds menus
+##     panel.file_activated.connect(on_double_click)
+##     panel.file_right_clicked.connect(on_right_click)
+##
 ## This is a viewer: connections cannot be made or broken, so connection_request and
 ## disconnect_node_request are deliberately left unwired.
 
@@ -47,6 +51,8 @@ const LINE_ZOOM_EXPONENT = 0.75
 ## Emitted on selection change; path is "" when the selection is cleared.
 signal file_selected(path:String)
 signal file_activated(path:String)
+## Right-click on a file node. The host builds any menu; stubs have no file, so never emit.
+signal file_right_clicked(path:String)
 ## The DepEdges behind a clicked connection - GraphEdit collapses duplicates, this does not.
 signal edge_activated(edges:Array)
 signal graph_built(node_count:int, truncated:bool)
@@ -494,6 +500,7 @@ func _add_file_node(path:String, dep_node, in_kinds:Dictionary, out_kinds:Dictio
 	_next_id += 1
 	node.name = node_name
 	node.activated.connect(_on_node_activated)
+	node.right_clicked.connect(file_right_clicked.emit)
 	add_child(node)
 	_nodes_by_path[path] = node
 	_path_by_name[node_name] = path

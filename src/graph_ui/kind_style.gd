@@ -10,10 +10,11 @@ const Kind = DepEdge.Kind
 
 ## Indexed by Kind. `short` is what fits on a GraphNode row.
 const STYLES:Array[Dictionary] = [
-	{"color": Color("4dd0c4"), "label": "preload",      "short": "preload"},
-	{"color": Color("f0a35e"), "label": "load",         "short": "load"},
-	{"color": Color("b07de0"), "label": "extends",      "short": "extends"},
-	{"color": Color("b07de0"), "label": "extends class","short": "extends"},
+	{"color": Color("b07de0"), "label": "preload",      "short": "preload"},
+	{"color": Color("4dd0c4"), "label": "load",         "short": "load"},
+	# keyword red, as the script editor colours `extends`
+	{"color": Color("ff7085"), "label": "extends",      "short": "extends"},
+	{"color": Color("ff7085"), "label": "extends class","short": "extends"},
 	{"color": Color("7bc96f"), "label": "global class", "short": "class"},
 	{"color": Color("e3c76a"), "label": "ext_resource", "short": "ext_res"},
 	{"color": Color("e07db0"), "label": "script_class", "short": "script"},

@@ -189,7 +189,7 @@ func _ready() -> void:
 	add_theme_color_override(&"activity", ACTIVE_LINE_COLOR)
 	node_selected.connect(_on_node_selected)
 	node_deselected.connect(_on_node_deselected)
-	scroll_offset_changed.connect(func(_offset): _update_line_thickness()) # zooming moves the offset too
+	scroll_offset_changed.connect(func(_offset): apply_zoom_line_thickness(self)) # zooming moves the offset too
 
 
 # --- public API ------------------------------------------------------------------------
@@ -314,7 +314,7 @@ func _fit_to_graph() -> void:
 
 	zoom = clampf(minf(size.x / padded.size.x, size.y / padded.size.y), zoom_min, 1.0)
 	scroll_offset = padded.get_center() * zoom - size * 0.5
-	_update_line_thickness()
+	apply_zoom_line_thickness(self)
 
 
 ## Full weight at zoom 1 and above, thinning below it down to LINE_MIN_THICKNESS.
@@ -322,11 +322,12 @@ static func _line_thickness_for(z:float) -> float:
 	return clampf(LINE_THICKNESS * pow(z, LINE_ZOOM_EXPONENT), LINE_MIN_THICKNESS, LINE_THICKNESS)
 
 
-# Only on a real change: setting it redraws every connection, and panning fires this too.
-func _update_line_thickness() -> void:
-	var thickness = snappedf(_line_thickness_for(zoom), 0.05)
-	if not is_equal_approx(thickness, connection_lines_thickness):
-		connection_lines_thickness = thickness
+## Sets `graph`'s line weight for its zoom; static so other GraphEdits can share it. Writes only on
+## a real change: setting it redraws every connection, and panning fires this too.
+static func apply_zoom_line_thickness(graph:GraphEdit) -> void:
+	var thickness = snappedf(_line_thickness_for(graph.zoom), 0.05)
+	if not is_equal_approx(thickness, graph.connection_lines_thickness):
+		graph.connection_lines_thickness = thickness
 
 
 func _graph_bounds() -> Rect2:

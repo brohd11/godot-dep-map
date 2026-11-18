@@ -112,10 +112,13 @@ func _add_row(text:String, color:Color, dep_node) -> void:
 			_icon_rect.texture = icon
 			_icon_rect.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 			_icon_rect.custom_minimum_size = Vector2(16, 16) * KindStyle.get_scale()
+			_icon_rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			row.add_child(_icon_rect)
 
 	var spacer = Control.new()
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# a plain Control stops the mouse, so the node under it could never be clicked or selected
+	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(spacer)
 
 	if text != "":
@@ -170,7 +173,9 @@ func _gui_input(event:InputEvent) -> void:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed \
 			and clicks.has_slot(ClickCallback.State.RMB_PRESSED):
-		selected = true # the menu is about this node; show it
+		var graph = get_parent() as GraphEdit
+		if graph != null:
+			graph.set_selected(self) # the menu is about this node alone; drops any multi-select
 	clicks.handle_input(event, [path], self)
 
 

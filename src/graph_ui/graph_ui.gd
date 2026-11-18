@@ -48,6 +48,10 @@ const LINE_THICKNESS = 2.5
 ## than linear so they outlast the nodes a little, floored so they never vanish.
 const LINE_MIN_THICKNESS = 0.6
 const LINE_ZOOM_EXPONENT = 0.75
+## Lines touching a selected node lerp this far toward ACTIVE_LINE_COLOR (GraphEdit's "activity").
+## White brightens the kind colour; the editor's default accent would recolour it instead.
+const ACTIVE_LINE_COLOR = Color.WHITE
+const ACTIVE_LINE_AMOUNT = 0.4
 
 ## Emitted on selection change; path is "" when the selection is cleared.
 signal file_selected(path:String)
@@ -168,6 +172,7 @@ var _secondary_edges:Array = []
 var _frames_by_dir:Dictionary = {}       # {dir: GraphFrame}
 var _dir_by_path:Dictionary = {}         # {path: dir} - which frame owns each node
 var _next_id:int = 0
+var _activity_queued:bool = false
 
 
 func _ready() -> void:
@@ -181,6 +186,7 @@ func _ready() -> void:
 	# view that cannot zoom out far enough to show it is no overview at all
 	zoom_min = 0.02
 	zoom_max = 2.0
+	add_theme_color_override(&"activity", ACTIVE_LINE_COLOR)
 	node_selected.connect(_on_node_selected)
 	node_deselected.connect(_on_node_deselected)
 	scroll_offset_changed.connect(func(_offset): _update_line_thickness()) # zooming moves the offset too
@@ -645,6 +651,7 @@ func _connect_edges() -> void:
 		_connect_one(edge)
 	for edge in _secondary_edges:
 		_connect_one(edge)
+	_queue_activity()
 
 
 ## Returns the connection key, or "" if the edge could not be drawn.
@@ -675,11 +682,37 @@ func _kind_visible(kind:int) -> bool:
 
 func _on_node_selected(node:Node) -> void:
 	file_selected.emit(_path_by_name.get(node.name, ""))
+	_queue_activity()
 
 
 func _on_node_deselected(_node:Node) -> void:
 	if get_selected_paths().is_empty():
 		file_selected.emit("")
+	_queue_activity()
+
+
+## Lights the connections touching a selected node; static so other GraphEdits can share it.
+static func highlight_selected_connections(graph:GraphEdit, amount:float = ACTIVE_LINE_AMOUNT) -> void:
+	var selected = {}
+	for child in graph.get_children():
+		if child is GraphElement and child.selected:
+			selected[child.name] = true
+	for c in graph.get_connection_list():
+		var active = selected.has(c.from_node) or selected.has(c.to_node)
+		graph.set_connection_activity(c.from_node, c.from_port, c.to_node, c.to_port, amount if active else 0.0)
+
+
+# A box select fires node_selected once per node; one pass at the end of the frame covers them all.
+func _queue_activity() -> void:
+	if _activity_queued:
+		return
+	_activity_queued = true
+	_apply_activity.call_deferred()
+
+
+func _apply_activity() -> void:
+	_activity_queued = false
+	highlight_selected_connections(self)
 
 
 func _gui_input(event:InputEvent) -> void:
@@ -703,12 +736,25 @@ func _get_tooltip(at_position:Vector2) -> String:
 	return _describe_edges(edges)
 
 
+## Nothing under a node: a line running beneath it would otherwise take the click, and this
+## script input runs before GraphEdit's native selection.
 func _edges_at(local_position:Vector2) -> Array:
+	if node_at(get_global_transform() * local_position) != null:
+		return []
 	var connection = get_closest_connection_at_point(local_position, 6.0)
 	if connection.is_empty():
 		return []
 	var key = "%s|%d|%s|%d" % [connection.from_node, connection.from_port, connection.to_node, connection.to_port]
 	return _edges_by_connection.get(key, [])
+
+
+## The topmost graph node under a global point, or null. Frames don't count: lines cross them.
+func node_at(global_point:Vector2) -> GraphNode:
+	for i in range(get_child_count() - 1, -1, -1):
+		var child = get_child(i)
+		if child is GraphNode and child.visible and child.get_global_rect().has_point(global_point):
+			return child
+	return null
 
 
 # "preload · lines 12, 40" - the line numbers are the reason the DepEdge list is kept.

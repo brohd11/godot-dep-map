@@ -15,9 +15,9 @@ extends GraphEdit
 ##     # or centre on one file: only its neighbourhood is drawn, out to focus_depth hops
 ##     panel.set_focus("res://addons/foo/plugin.gd", 2)
 ##
-##     # actions are the host's: these hand over the file path, the host builds menus
-##     panel.file_activated.connect(on_double_click)
-##     panel.file_right_clicked.connect(on_right_click)
+##     # actions are the host's: assign callbacks, which get the file path
+##     panel.file_clicks.left_click_double = on_double_click
+##     panel.file_clicks.right_click_pressed = on_right_click
 ##
 ## This is a viewer: connections cannot be made or broken, so connection_request and
 ## disconnect_node_request are deliberately left unwired.
@@ -26,6 +26,7 @@ const Scanner = preload("res://addons/_lib/dep_map/src/scanner.gd")
 const DepFileNode = preload("res://addons/_lib/dep_map/src/graph_ui/dep_file_node.gd")
 const KindStyle = preload("res://addons/_lib/dep_map/src/graph_ui/kind_style.gd")
 const Layout = preload("res://addons/_lib/dep_map/src/graph_ui/layout.gd")
+const ClickCallback = preload("uid://nlyakecug1es") #! resolve UtilR.Inputs.ClickCallback
 
 const Kind = Scanner.Kind
 
@@ -50,12 +51,12 @@ const LINE_ZOOM_EXPONENT = 0.75
 
 ## Emitted on selection change; path is "" when the selection is cleared.
 signal file_selected(path:String)
-signal file_activated(path:String)
-## Right-click on a file node. The host builds any menu; stubs have no file, so never emit.
-signal file_right_clicked(path:String)
 ## The DepEdges behind a clicked connection - GraphEdit collapses duplicates, this does not.
 signal edge_activated(edges:Array)
 signal graph_built(node_count:int, truncated:bool)
+
+## Clicks on file nodes; callbacks get (path:String). Stubs have no file, so never fire.
+var file_clicks := ClickCallback.new()
 
 # --- scan config, used by set_files() ---
 var scan_max_depth:int = -1
@@ -499,8 +500,7 @@ func _add_file_node(path:String, dep_node, in_kinds:Dictionary, out_kinds:Dictio
 	var node_name = StringName("n%d" % _next_id)
 	_next_id += 1
 	node.name = node_name
-	node.activated.connect(_on_node_activated)
-	node.right_clicked.connect(file_right_clicked.emit)
+	node.clicks = file_clicks
 	add_child(node)
 	_nodes_by_path[path] = node
 	_path_by_name[node_name] = path
@@ -680,10 +680,6 @@ func _on_node_selected(node:Node) -> void:
 func _on_node_deselected(_node:Node) -> void:
 	if get_selected_paths().is_empty():
 		file_selected.emit("")
-
-
-func _on_node_activated(path:String) -> void:
-	file_activated.emit(path)
 
 
 func _gui_input(event:InputEvent) -> void:

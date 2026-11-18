@@ -12,15 +12,15 @@ extends GraphNode
 ## that way", right port lit means "this file references out that way".
 
 const KindStyle = preload("res://addons/_lib/dep_map/src/graph_ui/kind_style.gd")
+const ClickCallback = preload("uid://nlyakecug1es") #! resolve UtilR.Inputs.ClickCallback
 
 const ROW_HEIGHT = 22.0
 const TITLE_HEIGHT = 34.0
 const NODE_WIDTH = 230.0
 
-signal activated(path:String)
-signal right_clicked(path:String)
-
 var path:String = ""
+## The panel's shared ClickCallback; null on stubs, which have no file to act on.
+var clicks:ClickCallback
 var compact:bool = false
 ## {Kind: port index} for the connect pass. Ports are counted per side, so a kind that only
 ## appears on one side still gets the right index there.
@@ -163,18 +163,15 @@ func _tooltip_for(dep_node) -> String:
 	return "\n".join(lines)
 
 
-## GraphNode has no "activated" or context click of its own, so both are detected here.
+## GraphNode has no click hooks of its own. An unhandled click falls through to GraphEdit, so
+## right-click with no callback still raises its popup_request.
 func _gui_input(event:InputEvent) -> void:
-	if not (event is InputEventMouseButton and event.pressed):
+	if clicks == null:
 		return
-	# accept before emitting: a handler may rebuild the graph and free this node mid-signal
-	if event.button_index == MOUSE_BUTTON_LEFT and event.double_click:
-		accept_event()
-		activated.emit(path)
-	elif event.button_index == MOUSE_BUTTON_RIGHT:
-		accept_event() # or GraphEdit raises its own popup_request too
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and event.pressed \
+			and clicks.has_slot(ClickCallback.State.RMB_PRESSED):
 		selected = true # the menu is about this node; show it
-		right_clicked.emit(path)
+	clicks.handle_input(event, [path], self)
 
 
 ## Fallback size for the layout when a node's real minimum is not available yet.

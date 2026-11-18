@@ -2,10 +2,11 @@
 ## testable headless.
 ##
 ## Column is the node's LONGEST path from a root (depth_mode "max", the default): every edge
-## then satisfies depth(to) > depth(from), so dependencies flow strictly left to right and no
-## line ever doubles back. The scanner's DepNode.depth - the SHORTEST hop count - is still
-## available as depth_mode "min"; it reads shallower, but a node reached both directly and
-## via a long chain drags its deep incoming edges back across the graph. Row order inside a
+## then satisfies depth(to) > depth(from), so dependencies flow left to right; only an edge that
+## closes a cycle doubles back (opts.prefer_edges picks which). The scanner's DepNode.depth -
+## the SHORTEST hop count - is still available as depth_mode "min"; it reads shallower, but a
+## node reached both directly and via a long chain drags its deep incoming edges back across
+## the graph. Row order inside a
 ## column comes from the barycentre of each node's parents - the cheap half of Sugiyama -
 ## which is what stops the connection lines turning into a hairball.
 
@@ -45,7 +46,7 @@ static func compute(dep_graph, sizes:Dictionary, opts:Dictionary = {}) -> Dictio
 	if opts.get("depth_mode", DEFAULTS.depth_mode) == "min":
 		columns = _build_columns(dep_graph)
 	else:
-		columns = _build_columns_max(dep_graph)
+		columns = _build_columns_max(dep_graph, opts.get("prefer_edges", {}))
 	if columns.is_empty():
 		return {}
 
@@ -74,95 +75,115 @@ static func _build_columns(dep_graph) -> Array:
 	return columns
 
 
-## Column index per node, keyed by the LONGEST path from a source. Longest path is only
-## defined on a DAG, and dependency cycles are legal (mutual preloads), so strongly
-## connected components are condensed first and every node in a cycle shares one column.
-## Computed from the edges alone, so it works on the panel's view graph, stubs included.
-static func _build_columns_max(dep_graph) -> Array:
+## Column index per node, keyed by the LONGEST path from a source, so each file sits one column
+## past the last file that uses it. Longest path needs a DAG and preload cycles are legal (hubs
+## their members preload back), so a DFS from the roots drops each cycle's closing edge from the
+## ranking - only that edge points left. Edges in `prefer` ("from|to") are walked first, so the
+## panel's drawn tree edges form the spine and are not the ones dropped. Built from in_edges, so
+## it works on the panel's view graph, stubs included.
+static func _build_columns_max(dep_graph, prefer:Dictionary = {}) -> Array:
 	if dep_graph.nodes.is_empty():
 		return []
 
-	var comp = _strongly_connected(dep_graph) # {path: component id}
-	var comp_count := 0
-	for path in comp:
-		comp_count = maxi(comp_count, comp[path] + 1)
-
-	var preds:Array = [] # per component, the set of components feeding it
-	for i in comp_count:
-		preds.append({})
+	var out_of = {} # path -> [to], preferred first, then sorted
+	var has_in = {}
 	for path:String in dep_graph.nodes:
 		for edge in dep_graph.nodes[path].in_edges:
-			if comp.has(edge.from) and comp[edge.from] != comp[path]:
-				preds[comp[path]][comp[edge.from]] = true
+			var from:String = edge.from
+			if from == path or not dep_graph.nodes.has(from):
+				continue
+			if not out_of.has(from):
+				out_of[from] = []
+			if not path in out_of[from]:
+				out_of[from].append(path)
+			has_in[path] = true
+	for from in out_of:
+		out_of[from].sort_custom(func(a, b):
+			var pa = prefer.has(from + "|" + a)
+			var pb = prefer.has(from + "|" + b)
+			return pa if pa != pb else a < b)
 
-	var memo = {}
+	var back = _back_edges(dep_graph, out_of, has_in)
+	var indegree = {}
+	for from in out_of:
+		for to in out_of[from]:
+			if not back.has(from + "|" + to):
+				indegree[to] = indegree.get(to, 0) + 1
+	var depth = {}
+	var queue:Array = []
+	for path:String in dep_graph.nodes:
+		if indegree.get(path, 0) == 0:
+			depth[path] = 0
+			queue.append(path)
+	var i = 0
+	while i < queue.size():
+		var from:String = queue[i]
+		i += 1
+		for to in out_of.get(from, []):
+			if back.has(from + "|" + to):
+				continue
+			depth[to] = maxi(depth.get(to, 0), depth[from] + 1)
+			indegree[to] -= 1
+			if indegree[to] == 0:
+				queue.append(to)
+
 	var by_depth = {}
 	var max_depth := 0
 	for path:String in dep_graph.nodes:
-		var depth := _component_depth(comp[path], preds, memo)
-		max_depth = maxi(max_depth, depth)
-		if not by_depth.has(depth):
-			by_depth[depth] = []
-		by_depth[depth].append(path)
+		var d:int = depth.get(path, 0)
+		max_depth = maxi(max_depth, d)
+		if not by_depth.has(d):
+			by_depth[d] = []
+		by_depth[d].append(path)
 
 	var columns:Array = []
-	for i in max_depth + 1:
-		var col:Array = by_depth.get(i, [])
+	for c in max_depth + 1:
+		var col:Array = by_depth.get(c, [])
 		col.sort()
 		columns.append(col)
 	return columns
 
 
-## depth[c] = 0 for sources, else 1 + max(depth of its predecessors). The condensed graph
-## is a DAG by construction, so the memoized walk cannot re-enter a component.
-static func _component_depth(c:int, preds:Array, memo:Dictionary) -> int:
-	if memo.has(c):
-		return memo[c]
-	var depth := 0
-	for p in preds[c]:
-		depth = maxi(depth, _component_depth(p, preds, memo) + 1)
-	memo[c] = depth
-	return depth
-
-
-## Tarjan's algorithm. Returns {path: component id}. Edges to nodes outside the graph -
-## pruned away by the panel, or unresolved targets - are not part of any cycle here.
-static func _strongly_connected(dep_graph) -> Dictionary:
-	var state = {
-		"index_of": {}, "low": {}, "on_stack": {}, "stack": [],
-		"comp": {}, "next": 0, "comp_next": 0,
-	}
+## {"from|to": true} for the edges that close a cycle: iterative DFS (graphs run to hundreds of
+## nodes), scan roots first, then sources, then whatever is left, each group sorted.
+static func _back_edges(dep_graph, out_of:Dictionary, has_in:Dictionary) -> Dictionary:
+	var roots:Array = []
+	var sources:Array = []
+	var rest:Array = []
 	for path:String in dep_graph.nodes:
-		if not state.index_of.has(path):
-			_tarjan_visit(path, dep_graph, state)
-	return state.comp
+		if dep_graph.nodes[path].get("is_root") == true:
+			roots.append(path)
+		elif not has_in.has(path):
+			sources.append(path)
+		else:
+			rest.append(path)
+	roots.sort()
+	sources.sort()
+	rest.sort()
 
-
-static func _tarjan_visit(path:String, dep_graph, state:Dictionary) -> void:
-	state.index_of[path] = state.next
-	state.low[path] = state.next
-	state.next += 1
-	state.stack.append(path)
-	state.on_stack[path] = true
-
-	for edge in dep_graph.nodes[path].out_edges:
-		var to:String = edge.to
-		if to == "" or not dep_graph.nodes.has(to):
+	var back = {}
+	var state = {} # path -> 1 on the stack, 2 done
+	for start in roots + sources + rest:
+		if state.has(start):
 			continue
-		if not state.index_of.has(to):
-			_tarjan_visit(to, dep_graph, state)
-			state.low[path] = mini(state.low[path], state.low[to])
-		elif state.on_stack.has(to):
-			state.low[path] = mini(state.low[path], state.index_of[to])
-
-	if state.low[path] == state.index_of[path]:
-		while true:
-			var w = state.stack.pop_back()
-			state.on_stack.erase(w)
-			state.comp[w] = state.comp_next
-			if w == path:
-				break
-		state.comp_next += 1
+		state[start] = 1
+		var stack:Array = [[start, 0]]
+		while not stack.is_empty():
+			var top:Array = stack[-1]
+			var targets:Array = out_of.get(top[0], [])
+			if top[1] >= targets.size():
+				state[top[0]] = 2
+				stack.pop_back()
+				continue
+			var to:String = targets[top[1]]
+			top[1] += 1
+			match state.get(to, 0):
+				1:
+					back[top[0] + "|" + to] = true
+				0:
+					state[to] = 1
+					stack.append([to, 0])
+	return back
 
 
 ## Positions for the neighbourhood view: the focus file(s) at column 0, their dependencies

@@ -15,6 +15,7 @@ extends EditorScript
 const Scanner = preload("uid://dbn0kmkxa7caq") #! resolve DepMap.Scanner
 const Layout = preload("res://addons/_lib/dep_map/src/graph_ui/layout.gd")
 const DepFileNode = preload("res://addons/_lib/dep_map/src/graph_ui/dep_file_node.gd")
+const GraphUI = preload("res://addons/_lib/dep_map/src/graph_ui/graph_ui.gd")
 
 const DIR = "user://alib_dep_graph_tests/"
 const NODE_SIZE = Vector2(200, 60)
@@ -38,12 +39,15 @@ static func run_tests() -> Dictionary:
 	_test_diamond_child_between_parents()
 	_test_barycentre_reduces_crossings()
 	_test_max_depth_pushes_shortcut_node_right()
-	_test_max_depth_cycle_shares_column()
+	_test_max_depth_cycle_spreads()
+	_test_cycle_prefer_edges()
+	_test_hub_cycles_spread()
 	_test_max_depth_opt_min_keeps_old_columns()
 	_test_neighborhood_dist_limits_depth()
 	_test_neighborhood_columns_around_focus()
 	_test_neighborhood_prefers_shorter_side()
 	_test_estimate_size_tracks_kinds()
+	_test_line_thickness_scales()
 	_test_folder_tree_shape()
 	_test_folder_corridor_collapse()
 	_test_folder_column_wrap()
@@ -203,8 +207,8 @@ static func _test_max_depth_pushes_shortcut_node_right() -> void:
 	_check("max depth: every edge moves right", all_right, true)
 
 
-## Longest path is undefined on a cycle, so a mutual preload collapses into one column.
-static func _test_max_depth_cycle_shares_column() -> void:
+## A cycle is broken at its closing edge, so its members still step right one column each.
+static func _test_max_depth_cycle_spreads() -> void:
 	var a = _w("cy_a.gd", "extends RefCounted\n")
 	var b = _w("cy_b.gd", 'const A = preload("%s")\n' % a)
 	a = _w("cy_a.gd", 'const B = preload("%s")\n' % b) # close the cycle
@@ -213,8 +217,64 @@ static func _test_max_depth_cycle_shares_column() -> void:
 	var graph = _scan([root])
 	var pos = Layout.compute(graph, _sizes(graph))
 
-	_check("cycle: a and b share a column", pos[a].x, pos[b].x)
-	_check("cycle: root stays left of the cycle", pos[root].x < pos[a].x, true)
+	_check("cycle: root, a, b step right", pos[root].x < pos[a].x and pos[a].x < pos[b].x, true)
+	_check("cycle: only the closing edge points left", _left_edges(graph, pos), [[b, a]])
+
+
+## prefer_edges steers which way a cycle is entered, and so which edge is the one dropped.
+static func _test_cycle_prefer_edges() -> void:
+	var a = _w("cp_a.gd", "extends RefCounted\n")
+	var b = _w("cp_b.gd", 'const A = preload("%s")\n' % a)
+	a = _w("cp_a.gd", 'const B = preload("%s")\n' % b)
+	var root = _w("cp_root.gd", 'const A = preload("%s")\nconst B = preload("%s")\n' % [a, b])
+
+	var graph = _scan([root])
+	var pos = Layout.compute(graph, _sizes(graph))
+	_check("prefer: sorted walk enters at a", pos[a].x < pos[b].x, true)
+	pos = Layout.compute(graph, _sizes(graph), {"prefer_edges": {root + "|" + b: true}})
+	_check("prefer: preferred edge enters at b", pos[b].x < pos[a].x, true)
+	_check("prefer: b -> a kept, a -> b dropped", _left_edges(graph, pos), [[a, b]])
+
+
+## A namespace-style hub its members preload back: they no longer pile into one column.
+static func _test_hub_cycles_spread() -> void:
+	var hub = _w("hb_hub.gd", "extends RefCounted\n")
+	var c2 = _w("hb_c2.gd", "extends RefCounted\n")
+	var c1 = _w("hb_c1.gd", 'const C = preload("%s")\n' % c2)
+	var members = []
+	for n in ["hb_f1.gd", "hb_f2.gd", "hb_f3.gd"]:
+		var extra = ('const C = preload("%s")\n' % c1) if n == "hb_f1.gd" else ""
+		members.append(_w(n, 'const H = preload("%s")\n' % hub + extra))
+	hub = _w("hb_hub.gd", "".join(members.map(func(m): return 'const M%d = preload("%s")\n' % [members.find(m), m])))
+	var root = _w("hb_root.gd", 'const H = preload("%s")\n' % hub)
+
+	var graph = _scan([root])
+	var pos = Layout.compute(graph, _sizes(graph))
+	_check("hub: members one past the hub", members.all(func(m): return pos[m].x > pos[hub].x), true)
+	_check("hub: chain keeps stepping right", pos[members[0]].x < pos[c1].x and pos[c1].x < pos[c2].x, true)
+	_check("hub: only the back-references point left", _left_edges(graph, pos).size(), 3)
+
+
+## Line weight follows zoom down, never up, and never below the floor.
+static func _test_line_thickness_scales() -> void:
+	var t = GraphUI._line_thickness_for
+	_check("lines: full weight at 1 and above", [t.call(1.0), t.call(2.0)], [GraphUI.LINE_THICKNESS, GraphUI.LINE_THICKNESS])
+	var samples = [1.0, 0.5, 0.25, 0.12].map(func(z): return t.call(z))
+	var decreasing = true
+	for i in range(1, samples.size()):
+		decreasing = decreasing and samples[i] < samples[i - 1]
+	_check("lines: thinner as the view zooms out", decreasing, true)
+	_check("lines: floored at overview zoom", t.call(0.02), GraphUI.LINE_MIN_THICKNESS)
+
+
+static func _left_edges(graph, pos:Dictionary) -> Array:
+	var out = []
+	for path in graph.nodes:
+		for edge in graph.nodes[path].out_edges:
+			if pos.has(edge.to) and pos[edge.to].x <= pos[path].x:
+				out.append([path, edge.to])
+	out.sort()
+	return out
 
 
 ## The scanner's shortest-hop depth is still available for comparison.

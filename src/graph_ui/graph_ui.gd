@@ -39,6 +39,10 @@ enum LayoutMode {
 
 const VIEW_MARGIN = 40.0
 const LINE_THICKNESS = 2.5
+## Lines thin as the view zooms out, or at overview zoom they swamp the shrunken nodes. Softer
+## than linear so they outlast the nodes a little, floored so they never vanish.
+const LINE_MIN_THICKNESS = 0.6
+const LINE_ZOOM_EXPONENT = 0.75
 
 ## Emitted on selection change; path is "" when the selection is cleared.
 signal file_selected(path:String)
@@ -172,6 +176,7 @@ func _ready() -> void:
 	zoom_max = 2.0
 	node_selected.connect(_on_node_selected)
 	node_deselected.connect(_on_node_deselected)
+	scroll_offset_changed.connect(func(_offset): _update_line_thickness()) # zooming moves the offset too
 
 
 # --- public API ------------------------------------------------------------------------
@@ -296,6 +301,19 @@ func _fit_to_graph() -> void:
 
 	zoom = clampf(minf(size.x / padded.size.x, size.y / padded.size.y), zoom_min, 1.0)
 	scroll_offset = padded.get_center() * zoom - size * 0.5
+	_update_line_thickness()
+
+
+## Full weight at zoom 1 and above, thinning below it down to LINE_MIN_THICKNESS.
+static func _line_thickness_for(z:float) -> float:
+	return clampf(LINE_THICKNESS * pow(z, LINE_ZOOM_EXPONENT), LINE_MIN_THICKNESS, LINE_THICKNESS)
+
+
+# Only on a real change: setting it redraws every connection, and panning fires this too.
+func _update_line_thickness() -> void:
+	var thickness = snappedf(_line_thickness_for(zoom), 0.05)
+	if not is_equal_approx(thickness, connection_lines_thickness):
+		connection_lines_thickness = thickness
 
 
 func _graph_bounds() -> Rect2:
@@ -534,7 +552,8 @@ func _apply_layout() -> void:
 			# neighbourhood view: focus at column 0, dependents left, dependencies right
 			positions = Layout.compute_neighborhood(_layout_source(), focus_paths, focus_depth, sizes, {"h_gap": h_gap * scale, "v_gap": v_gap * scale})
 		else:
-			positions = Layout.compute(_layout_source(), sizes, {"h_gap": h_gap * scale, "v_gap": v_gap * scale})
+			positions = Layout.compute(_layout_source(), sizes, {"h_gap": h_gap * scale, "v_gap": v_gap * scale,
+				"prefer_edges": _tree_edge_keys()})
 
 	for path:String in _nodes_by_path:
 		if _manual_positions.has(path):
@@ -591,6 +610,18 @@ func _clear_frames() -> void:
 		frame.queue_free()
 	_frames_by_dir.clear()
 	_dir_by_path.clear()
+
+
+## "from|to" of the drawn tree edges, so the layout keeps them pointing right when it has to
+## break a cycle. Empty in ALL mode: no edge is privileged there.
+func _tree_edge_keys() -> Dictionary:
+	var keys = {}
+	if edge_mode != EdgeMode.TREE:
+		return keys
+	for edge in _primary_edges:
+		var to = edge.to if edge.to != "" else "unresolved:" + edge.raw
+		keys[edge.from + "|" + to] = true
+	return keys
 
 
 # Layout has to see exactly what is on screen and nothing else - a pruned node still holding a

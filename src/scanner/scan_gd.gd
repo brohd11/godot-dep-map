@@ -78,28 +78,7 @@ static func scan(file_path:String, ctx) -> Array:
 
 ## Zero-based line numbers. Inspect real comments, including multiline-string context.
 static func ignored_line_numbers(text:String, tags:Array) -> Dictionary:
-	var ignored = {}
-	if tags.is_empty() or not text.contains("#!"):
-		return ignored
-	var map = StringMap.new(text)
-	var offset = 0
-	var lines = text.split("\n")
-	for i in lines.size():
-		var line:String = lines[i]
-		var start = _comment_start(line, map, offset)
-		offset += line.length() + 1
-		if start == -1:
-			continue
-		var comment = line.substr(start)
-		for tag:String in tags:
-			var marker = "#! " + tag
-			if not comment.begins_with(marker):
-				continue
-			var rest = comment.substr(marker.length())
-			if rest == "" or rest[0] in [" ", "\t", "\r", ";"]:
-				ignored[i] = true
-				break
-	return ignored
+	return ResolveAccess.ignored_line_numbers(text, tags)
 
 
 ## Preserve offsets so callers can compare filtered references against the original source.
@@ -546,14 +525,7 @@ static func _code_part(line:String, map, offset:int) -> String:
 ## Index of the "#" opening this line's comment, or -1. Mask-based, so a "#" inside a string
 ## literal is not mistaken for one.
 static func _comment_start(line:String, map, offset:int) -> int:
-	var size = map.comment_mask.size()
-	for i in line.length():
-		var idx = offset + i
-		if idx >= size:
-			break
-		if map.comment_mask[idx] == 1:
-			return i
-	return -1
+	return ResolveAccess.comment_start(line, map, offset)
 
 
 static func _masked(map, index:int) -> bool:

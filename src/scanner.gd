@@ -145,6 +145,7 @@ func get_graph() -> DepGraph:
 	var graph = DepGraph.new()
 	_build_lookups()
 	access_cache.clear()
+	ResolveAccess.set_ignore_tags(access_cache, ignore_line_tags)
 	if class_map.is_empty() and use_project_classes:
 		class_map = get_project_class_map()
 

@@ -59,6 +59,7 @@ static func run_tests() -> Dictionary:
 	_test_alias_walk()
 	_test_alias_edges()
 	_test_inherited_heads()
+	_test_ignored_lines_declare_nothing()
 	_test_pass_through()
 	_test_self_reference()
 	_test_literals()
@@ -669,6 +670,29 @@ static func _test_inherited_heads() -> void:
 			kept = e
 	_check("inherit: bare use gets its own edge", kept.to if kept else "", hub)
 	_check("inherit: crossing names the base", kept.meta.crossed[0].file if kept else "", base)
+
+
+## An ignored extends or const is invisible to access resolution too: the base it names isn't
+## inherited from, and an ignored const isn't a head, so nothing reaches their targets.
+static func _test_ignored_lines_declare_nothing() -> void:
+	var leaf = _w("il_leaf.gd", "extends RefCounted\n")
+	var hub = _w("il_hub.gd", 'const Leaf = preload("%s")\nstatic func f(): pass\n' % leaf)
+	var base = _w("il_base.gd", 'extends RefCounted\nconst H = preload("%s")\n' % hub)
+	var cases = {
+		"ignored extends, bare inherited use": 'extends "%s" #! skip-ref\nfunc g(): H.f()\n' % base,
+		"ignored extends, dotted inherited use": 'extends "%s" #! skip-ref\nvar v = H.Leaf\n' % base,
+		"ignored const, dotted use": 'const X = preload("%s") #! skip-ref\nvar v = X.Leaf\n' % hub,
+	}
+	for label in cases:
+		var root = _w("il_root.gd", cases[label])
+		var d = _open(root)
+		d.class_map = {}
+		_check("ignored lines: untagged %s still reaches the hub" % label, d.get_graph().has(hub), true)
+		d.ignore_line_tags = ["skip-ref"]
+		var graph = d.get_graph()
+		for target in [base, hub, leaf]:
+			_check("ignored lines: %s has no edge to %s" % [label, target.get_file()], graph.has(target), false)
+		_check("ignored lines: %s leaves nothing unresolved" % label, graph.unresolved.size(), 0)
 
 
 static func _test_pass_through() -> void:

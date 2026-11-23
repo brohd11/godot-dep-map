@@ -14,6 +14,8 @@ const Resolve = preload("res://addons/_lib/dep_map/src/scanner/resolve.gd")
 
 const AUTOGEN_MARKER = "This file is auto-generated"
 const AUTOGEN_SCAN_LINES = 3
+## Cache key for the scan's ignore-line tags (set_ignore_tags). Keys are otherwise "<kind>:<path>".
+const IGNORE_TAGS_KEY = "ignore_line_tags"
 
 static var _const_regex:RegEx
 static var _alias_regex:RegEx
@@ -211,10 +213,16 @@ static func get_const_entries(file_path:String, cache:Dictionary) -> Dictionary:
 
 	_ensure_regex()
 	var map = StringMap.new(text)
+	# An ignored line declares nothing to the scan: its const isn't a head, and an ignored
+	# extends leaves no script base, so nothing is inherited or crossed through it.
+	var ignored = ignored_line_numbers(text, cache.get(IGNORE_TAGS_KEY, []))
 	var offset = 0
 	var line_no = 0
 	for line in text.split("\n"):
 		line_no += 1
+		if ignored.has(line_no - 1):
+			offset += line.length() + 1
+			continue
 		var m = _const_regex.search(line)
 		if m != null and not _masked(map, offset + m.get_start(2)):
 			var indented = m.get_string(1) != ""
@@ -271,6 +279,51 @@ static func _ensure_regex() -> void:
 	_literal_regex.compile('^const\\s+([A-Za-z_]\\w*)\\s*(?::=|=)\\s*(-?\\d[\\d_]*(?:\\.\\d+)?|true|false|null|&?"(?:[^"\\\\]|\\\\.)*"|&?\'(?:[^\'\\\\]|\\\\.)*\')\\s*(?:#.*)?$')
 	_extends_regex = RegEx.new()
 	_extends_regex.compile('^(?:class_name\\s+\\w+\\s+)?extends\\s+("[^"]+"|\'[^\']+\'|[A-Za-z_][\\w.]*)')
+
+
+## Tags whose lines get_const_entries skips, for every file read through `cache`. Re-set after
+## clearing the cache. Ignoring an in-source extends also hides which base consts the file uses.
+static func set_ignore_tags(cache:Dictionary, tags:Array) -> void:
+	cache[IGNORE_TAGS_KEY] = tags.duplicate()
+
+
+## Zero-based line numbers whose comment starts with "#! <tag>". Inspects real comments,
+## including multiline-string context.
+static func ignored_line_numbers(text:String, tags:Array) -> Dictionary:
+	var ignored = {}
+	if tags.is_empty() or not text.contains("#!"):
+		return ignored
+	var map = StringMap.new(text)
+	var offset = 0
+	var lines = text.split("\n")
+	for i in lines.size():
+		var line:String = lines[i]
+		var start = comment_start(line, map, offset)
+		offset += line.length() + 1
+		if start == -1:
+			continue
+		var comment = line.substr(start)
+		for tag:String in tags:
+			var marker = "#! " + tag
+			if not comment.begins_with(marker):
+				continue
+			var rest = comment.substr(marker.length())
+			if rest == "" or rest[0] in [" ", "\t", "\r", ";"]:
+				ignored[i] = true
+				break
+	return ignored
+
+
+## Index in `line` where its comment starts, or -1. `offset` is the line's start in the map's text.
+static func comment_start(line:String, map, offset:int) -> int:
+	var size = map.comment_mask.size()
+	for i in line.length():
+		var idx = offset + i
+		if idx >= size:
+			break
+		if map.comment_mask[idx] == 1:
+			return i
+	return -1
 
 
 static func _masked(map, index:int) -> bool:

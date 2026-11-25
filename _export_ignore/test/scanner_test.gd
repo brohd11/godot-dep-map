@@ -608,6 +608,9 @@ const Typed: Script = preload("%s")
 	_check("alias: not partial", alias.partial, false)
 	_check("alias: head stays the hub", alias.head_path, hub)
 	_check("alias: every const recorded", alias.crossed.map(func(h): return h.name), ["Leaf", "Utils", "Leaf"])
+	_check("alias: value hops name their owner", alias.crossed.map(func(h): return h.get("via", []).map(func(v): return v.expr)),
+		[[], ["Utils.Leaf"], ["Utils.Leaf"]])
+	_check("alias: owner records its file", alias.crossed[1].via[0].file, hub)
 
 	_check("alias: rename binds the real name", result.call("Hub.Renamed").bind_name, "Leaf")
 

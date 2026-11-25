@@ -34,7 +34,8 @@ static var _extends_regex:RegEx
 ## `consumed` counts the leading segments that resolved, and `parts[consumed..]` is the tail.
 ## `suffix` is what an alias added past the landing file (`const Foo = Other.Inner` gives
 ## ["Inner"]), so the expression reads as `bind_name` + suffix + tail. `crossed` holds each const
-## the walk went through as {"file", "name", "path"}. `literal` is the source text when the whole
+## the walk went through as {"file", "name", "path"}; a hop met while walking another const's value
+## also carries "via", the owning consts as {"file", "name", "expr"}, outermost first. `literal` is the source text when the whole
 ## expression boils down to a plain value. An unresolvable head gives "" and 0.
 static func resolve(expression:String, heads:Dictionary, class_map:Dictionary, cache:Dictionary, from_file:String = "") -> Dictionary:
 	var parts = expression.split(".", false)
@@ -139,6 +140,11 @@ static func _member_state(file_path:String, name:String, class_map:Dictionary, c
 			next.crossed = state.crossed + next.crossed
 			state = next
 
+	if entry.has("expr"):
+		# whoever rewrites this declaration also drops these hops, so they say which const owns them
+		var owner = {"file": file_path, "name": name, "expr": entry.expr}
+		for hop:Dictionary in state.crossed:
+			hop["via"] = [owner] + hop.get("via", [])
 	state.crossed = [{"file": file_path, "name": name, "path": state.path}] + state.crossed
 	return state
 
